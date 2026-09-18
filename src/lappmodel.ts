@@ -89,9 +89,18 @@ export class LAppModel extends CubismUserModel {
    * model3.jsonが置かれたディレクトリとファイルパスからモデルを生成する
    * @param dir
    * @param fileName
+   * @param extraExpressionFiles model3.json に書かれていない表情ファイル。
+   *   VTuber 配布の皮套などは Expressions を書かずに *.exp3.json を置くだけの
+   *   ことがあり、VTube Studio はディレクトリを走査して拾う。同じ挙動を
+   *   再現するため、呼ぶ側（アップロード経路）が仮想 FS から列挙して渡す。
    */
-  public loadAssets(dir: string, fileName: string): void {
+  public loadAssets(
+    dir: string,
+    fileName: string,
+    extraExpressionFiles: string[] = []
+  ): void {
     this._modelHomeDir = dir;
+    this._extraExpressionFiles = extraExpressionFiles;
 
     fetch(`${this._modelHomeDir}${fileName}`)
       .then(response => response.arrayBuffer())
@@ -155,14 +164,46 @@ export class LAppModel extends CubismUserModel {
 
     // Expression
     const loadCubismExpression = (): void => {
-      if (this._modelSetting.getExpressionCount() > 0) {
-        const count: number = this._modelSetting.getExpressionCount();
+      // model3.json の Expressions を優先し、無ければ走査で拾った一覧を使う。
+      // 表情名は「ファイル名から拡張子を除いたもの」にする（VTube Studio と
+      // 同じで、日本語ファイル名ならそのまま日本語のボタンになる）。
+      const declaredCount: number = this._modelSetting.getExpressionCount();
+      const useDeclared: boolean = declaredCount > 0;
 
-        for (let i = 0; i < count; i++) {
-          const expressionName = this._modelSetting.getExpressionName(i);
-          const expressionFileName =
-            this._modelSetting.getExpressionFileName(i);
+      const entries: Array<{ name: string; file: string }> = useDeclared
+        ? Array.from({ length: declaredCount }, (_, i) => ({
+            name: this._modelSetting.getExpressionName(i),
+            file: this._modelSetting.getExpressionFileName(i),
+          }))
+        : this._extraExpressionFiles.map((file) => ({
+            // ディレクトリ部を落として拡張子を除いたものを表示名にする
+            name: file
+              .split('/')
+              .pop()!
+              .replace(/\.exp3\.json$/i, ''),
+            file,
+          }));
 
+      if (entries.length > 0) {
+        const count = entries.length;
+
+        // 全件そろったら表情アップデータを登録して次のステップへ進む。
+        // loadCubismPhysics はこの関数のローカルなので、ここで閉包にする。
+        const finishExpressionLoad = (): void => {
+          if (this._expressionManager != null) {
+            const expressionUpdater = new CubismExpressionUpdater(
+              this._expressionManager
+            );
+            this._updateScheduler.addUpdatableList(expressionUpdater);
+          }
+
+          this._state = LoadStep.LoadPhysics;
+
+          // callback
+          loadCubismPhysics();
+        };
+
+        for (const { name: expressionName, file: expressionFileName } of entries) {
           fetch(`${this._modelHomeDir}${expressionFileName}`)
             .then(response => {
               if (response.ok) {
@@ -176,6 +217,16 @@ export class LAppModel extends CubismUserModel {
               }
             })
             .then(arrayBuffer => {
+              // 空バッファ（取得失敗）は登録しない。壊れた表情でボタンが
+              // 増えるより、出ないほうが分かりやすい。
+              if (arrayBuffer == null || arrayBuffer.byteLength === 0) {
+                this._expressionCount++;
+                if (this._expressionCount >= count) {
+                  finishExpressionLoad();
+                }
+                return;
+              }
+
               const motion: ACubismMotion = this.loadExpression(
                 arrayBuffer,
                 arrayBuffer.byteLength,
@@ -192,18 +243,7 @@ export class LAppModel extends CubismUserModel {
               this._expressionCount++;
 
               if (this._expressionCount >= count) {
-                // Expression Updaterの追加
-                if (this._expressionManager != null) {
-                  const expressionUpdater = new CubismExpressionUpdater(
-                    this._expressionManager
-                  );
-                  this._updateScheduler.addUpdatableList(expressionUpdater);
-                }
-
-                this._state = LoadStep.LoadPhysics;
-
-                // callback
-                loadCubismPhysics();
+                finishExpressionLoad();
               }
             });
         }
@@ -1137,6 +1177,7 @@ export class LAppModel extends CubismUserModel {
     this._updateScheduler = new CubismUpdateScheduler();
     this._motionUpdated = false;
     this._activeExpressionName = null;
+    this._extraExpressionFiles = [];
     this._overlayExpressions = new Map();
   }
 
@@ -1144,6 +1185,7 @@ export class LAppModel extends CubismUserModel {
   private _motionUpdated: boolean; // モーション更新フラグ
   private _subdelegate: LAppSubdelegate; // サブデリゲート
   private _activeExpressionName: string | null; // 現在有効な表情名（トグル判定用）
+  private _extraExpressionFiles: string[]; // model3.json に無い表情ファイル（走査で拾ったもの）
   private _overlayExpressions: Map<
     string,
     { manager: CubismExpressionMotionManager; updater: CubismExpressionUpdater }

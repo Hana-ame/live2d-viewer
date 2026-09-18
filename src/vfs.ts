@@ -82,6 +82,27 @@ export const count = (): number => fileMap.size;
 export const paths = (): string[] => [...fileMap.keys()].sort();
 
 /**
+ * 指定ディレクトリ配下のファイルを、拡張子で絞って返す。
+ *
+ * 一部のモデル（例: VTuber 配布の皮套）は model3.json に Expressions や
+ * Motions を書かず、ファイルをディレクトリに置くだけで済ませている。
+ * VTube Studio はそんなモデルでもディレクトリを走査して拾うので、
+ * 同じ挙動を再現するためにこの一覧を使う。
+ *
+ * @param dir モデルのルート（相対パス、末尾スラッシュ任意）
+ * @param ext 拡張子（例: '.exp3.json'）
+ * @returns dir 直下〜配下の相対パス一覧（ソート済み）
+ */
+export const listFiles = (dir: string, ext: string): string[] => {
+  const root = normalize(dir);
+  const lowerExt = ext.toLowerCase();
+  return [...fileMap.keys()]
+    .filter((p) => p.toLowerCase().endsWith(lowerExt))
+    .filter((p) => (root === '' ? true : p.startsWith(root)))
+    .sort();
+};
+
+/**
  * テクスチャなど Image.src / Audio.src 用に実 URL を返す。
  *
  * 公式パイプラインはテクスチャを `new Image().src = path` で読むため、

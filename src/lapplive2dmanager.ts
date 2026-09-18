@@ -179,8 +179,14 @@ export class LAppLive2DManager {
   /**
    * 仮想ファイルシステム（アップロードされたモデル）を読み込む。
    * @param modelJsonPath model3.json の相対パス（例: "Akuru/Akuru.model3.json"）
+   * @param extraExpressionFiles model3.json に書かれていない表情ファイル。
+   *   皮套によっては Expressions を書かず *.exp3.json を置くだけなので、
+   *   呼ぶ側が仮想 FS を走査して渡す（VTube Studio と同じ拾い方）。
    */
-  public loadUploadedModel(modelJsonPath: string): void {
+  public loadUploadedModel(
+    modelJsonPath: string,
+    extraExpressionFiles: string[] = []
+  ): void {
     const dir = modelJsonPath.includes('/')
       ? modelJsonPath.slice(0, modelJsonPath.lastIndexOf('/') + 1)
       : '';
@@ -189,7 +195,7 @@ export class LAppLive2DManager {
     this.releaseAllModel();
     const instance = new LAppModel();
     instance.setSubdelegate(this._subdelegate);
-    instance.loadAssets(dir, fileName);
+    instance.loadAssets(dir, fileName, extraExpressionFiles);
     this._models.push(instance);
   }
 

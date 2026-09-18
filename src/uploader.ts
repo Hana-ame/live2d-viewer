@@ -21,6 +21,7 @@ const buildPanel = (): {
   dirInput: HTMLInputElement;
   status: HTMLDivElement;
   log: HTMLDivElement;
+  refreshExpressions: () => void;
 } => {
   const panel = document.createElement('div');
   style(panel, {
@@ -399,12 +400,16 @@ const diagnose = (modelJsonPath: string): string[] => {
 
 /** 渲染管理器の最小インタフェース（公式 API の内部経路に依存する部分を一箇所に集約） */
 type Live2DManagerLike = {
-  loadUploadedModel: (p: string) => void;
+  loadUploadedModel: (p: string, extraExpressions?: string[]) => void;
   nextScene?: () => void;
   getExpressionNames?: () => string[];
   setExpression?: (name: string) => void;
   toggleExpression?: (name: string) => boolean;
   getActiveExpressionName?: () => string | null;
+  removeAllExpressions?: () => void;
+  addOverlayExpression?: (name: string) => boolean;
+  removeOverlayExpression?: (name: string) => void;
+  getOverlayExpressionNames?: () => string[];
 };
 
 /**
@@ -450,7 +455,18 @@ export const installUI = (): void => {
     // 经由 Subdelegate 替换模型
     const mgr = getManager();
     if (mgr) {
-      mgr.loadUploadedModel(model3);
+      // model3.json が Expressions を書いていない皮套のために、仮想 FS から
+      // *.exp3.json を走査して渡す（VTube Studio と同じ拾い方）。
+      const dir = model3.includes('/')
+        ? model3.slice(0, model3.lastIndexOf('/') + 1)
+        : '';
+      const extraExpressions = VFS.listFiles(dir, '.exp3.json');
+      if (extraExpressions.length > 0) {
+        lines.push(`（扫描到 ${extraExpressions.length} 个未声明的表情文件）`);
+        status.textContent = lines.join('\n');
+      }
+
+      mgr.loadUploadedModel(model3, extraExpressions);
       log.textContent = VFS.paths().slice(0, 40).join('\n');
       // モデルが変わったので表情ボタンを組み直す（読み込み完了を待って拾う）
       refreshExpressions();
