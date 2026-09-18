@@ -32,6 +32,32 @@ export const mountFiles = (files: FileList | File[]): string | null => {
     fileMap.set(rel, URL.createObjectURL(f));
   }
 
+  return pickModel3();
+};
+
+/**
+ * 明示的な相対パスつきでファイルを登録する。
+ *
+ * ZIP を展開した File は `webkitRelativePath` を持たないため、ZIP 内のパスを
+ * そのまま渡すこの経路を使う（フォルダ選択と同じ結果になる）。
+ *
+ * @param entries { path, file } の配列。path は ZIP 内の相対パス。
+ * @returns model3.json の相対パス（見つからなければ null）
+ */
+export const mountEntries = (
+  entries: Array<{ path: string; file: File }>
+): string | null => {
+  unmount();
+  for (const e of entries) {
+    const rel = normalize(e.path);
+    if (!rel) continue;
+    fileMap.set(rel, URL.createObjectURL(e.file));
+  }
+  return pickModel3();
+};
+
+/** 登録済みファイルから model3.json を選び、基点を確定する */
+function pickModel3(): string | null {
   // model3.json を探す。複数ある場合は最も浅い階層のものを選ぶ。
   const candidates = [...fileMap.keys()].filter((k) => k.toLowerCase().endsWith('.model3.json'));
   if (candidates.length === 0) return null;
@@ -41,7 +67,7 @@ export const mountFiles = (files: FileList | File[]): string | null => {
   // ルートは model3.json のあるディレクトリ
   currentRoot = model3.includes('/') ? model3.slice(0, model3.lastIndexOf('/') + 1) : '';
   return model3;
-};
+}
 
 /** 释放已注册的 Blob URL */
 export const unmount = (): void => {

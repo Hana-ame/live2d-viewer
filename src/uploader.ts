@@ -1,12 +1,13 @@
 /**
  * 模型上传 UI。
  *
- * 不打包任何模型数据，由用户选择本地的模型文件夹，
+ * 不打包任何模型数据，由用户选择本地的模型文件夹 / ZIP，
  * 在浏览器内渲染。
  */
 
 import { LAppDelegate } from './lappdelegate';
 import * as VFS from './vfs';
+import { unzipToFiles, commonRoot } from './zip';
 
 /** 支持的模型配置文件 */
 const MODEL3_EXT = '.model3.json';
@@ -19,6 +20,7 @@ const buildPanel = (): {
   panel: HTMLDivElement;
   fileInput: HTMLInputElement;
   dirInput: HTMLInputElement;
+  zipInput: HTMLInputElement;
   status: HTMLDivElement;
   log: HTMLDivElement;
   refreshExpressions: () => void;
@@ -82,8 +84,16 @@ const buildPanel = (): {
   fileInput.accept = '.json,.moc3,.png,.jpg,.jpeg,.webp,.wav,.mp3';
   style(fileInput, { display: 'none' });
 
+  // ZIP 選択。フォルダ選択（webkitdirectory）は iOS Safari などが
+  // 対応しておらず、モバイルでモデルを読み込めないため用意している。
+  const zipInput = document.createElement('input');
+  zipInput.type = 'file';
+  zipInput.accept = '.zip,application/zip';
+  style(zipInput, { display: 'none' });
+
   const dirBtn = mkButton('选择模型文件夹');
   const fileBtn = mkButton('选择文件（多选）');
+  const zipBtn = mkButton('选择 ZIP 压缩包');
   const nextBtn = mkButton('切换内置模型');
   const clearBtn = mkButton('清除');
 
@@ -124,6 +134,7 @@ const buildPanel = (): {
 
   dirBtn.onclick = () => dirInput.click();
   fileBtn.onclick = () => fileInput.click();
+  zipBtn.onclick = () => zipInput.click();
   nextBtn.onclick = () => {
     // 内置模型之间切换（内置模型从官方 CDN 读取，不用虚拟 FS）
     VFS.unmount();
@@ -367,6 +378,7 @@ const buildPanel = (): {
     hint,
     dirBtn,
     fileBtn,
+    zipBtn,
     nextBtn,
     clearBtn,
     status,
@@ -374,7 +386,7 @@ const buildPanel = (): {
     log,
     credit
   );
-  return { panel, fileInput, dirInput, status, log, refreshExpressions };
+  return { panel, fileInput, dirInput, zipInput, status, log, refreshExpressions };
 };
 
 /** 校验模型 JSON 同目录下是否有 .moc3，缺失时返回原因 */
@@ -427,12 +439,45 @@ const getManager = (): Live2DManagerLike | null => {
 };
 
 export const installUI = (): void => {
-  const { panel, fileInput, dirInput, status, log, refreshExpressions } =
+  const { panel, fileInput, dirInput, zipInput, status, log, refreshExpressions } =
     buildPanel();
   document.body.appendChild(panel);
 
   // 起動時のビルトインモデルぶんの表情ボタンを用意する
   refreshExpressions();
+
+  /**
+   * 仮想 FS に載った model3.json を実際に読み込む。
+   * フォルダ選択・ZIP 展開のどちらから来ても、ここ以降は同じ経路。
+   */
+  const loadFromModel3 = (model3: string, lines: string[]): void => {
+    for (const w of diagnose(model3)) lines.push(w);
+    lines.push(`✓ 已载入: ${model3}`);
+    status.textContent = lines.join('\n');
+
+    // 经由 Subdelegate 替换模型
+    const mgr = getManager();
+    if (mgr == null) {
+      status.textContent += '\n✗ 无法访问内部 API（缺少 getLive2DManager）';
+      return;
+    }
+
+    // model3.json が Expressions を書いていない皮套のために、仮想 FS から
+    // *.exp3.json を走査して渡す（VTube Studio と同じ拾い方）。
+    const dir = model3.includes('/')
+      ? model3.slice(0, model3.lastIndexOf('/') + 1)
+      : '';
+    const extraExpressions = VFS.listFiles(dir, '.exp3.json');
+    if (extraExpressions.length > 0) {
+      lines.push(`（扫描到 ${extraExpressions.length} 个未声明的表情文件）`);
+      status.textContent = lines.join('\n');
+    }
+
+    mgr.loadUploadedModel(model3, extraExpressions);
+    log.textContent = VFS.paths().slice(0, 40).join('\n');
+    // モデルが変わったので表情ボタンを組み直す（読み込み完了を待って拾う）
+    refreshExpressions();
+  };
 
   const handle = (files: FileList | null): void => {
     if (!files || files.length === 0) return;
@@ -448,35 +493,68 @@ export const installUI = (): void => {
       return;
     }
 
-    for (const w of diagnose(model3)) lines.push(w);
-    lines.push(`✓ 已载入: ${model3}`);
-    status.textContent = lines.join('\n');
+    loadFromModel3(model3, lines);
+  };
 
-    // 经由 Subdelegate 替换模型
-    const mgr = getManager();
-    if (mgr) {
-      // model3.json が Expressions を書いていない皮套のために、仮想 FS から
-      // *.exp3.json を走査して渡す（VTube Studio と同じ拾い方）。
-      const dir = model3.includes('/')
-        ? model3.slice(0, model3.lastIndexOf('/') + 1)
-        : '';
-      const extraExpressions = VFS.listFiles(dir, '.exp3.json');
-      if (extraExpressions.length > 0) {
-        lines.push(`（扫描到 ${extraExpressions.length} 个未声明的表情文件）`);
-        status.textContent = lines.join('\n');
+  /**
+   * ZIP を展開して読み込む。
+   *
+   * 展開はブラウザ内で完結し、どこにも送信しない。大きな ZIP では
+   * 1 ファイルずつ伸長するので、進捗を状態欄に出す。
+   */
+  const handleZip = async (file: File): Promise<void> => {
+    status.textContent = `正在解压 ${file.name} …`;
+    log.textContent = '';
+    try {
+      const entries = await unzipToFiles(file, (done, total) => {
+        // 進捗は 1 ファイルごとに更新（大きいモデルでも止まって見えないように）
+        if (done % 5 === 0 || done === total) {
+          status.textContent = `正在解压 ${file.name} … ${done}/${total}`;
+        }
+      });
+
+      if (entries.length === 0) {
+        status.textContent = '✗ ZIP 里没有文件。';
+        return;
       }
 
-      mgr.loadUploadedModel(model3, extraExpressions);
-      log.textContent = VFS.paths().slice(0, 40).join('\n');
-      // モデルが変わったので表情ボタンを組み直す（読み込み完了を待って拾う）
-      refreshExpressions();
-      return;
+      // ZIP 内の共通の先頭フォルダを落として、フォルダ選択と同じ相対パスにする
+      const root = commonRoot(entries);
+      const rel = entries.map((e) => ({
+        path: root && e.path.startsWith(root) ? e.path.slice(root.length) : e.path,
+        file: e.file,
+      }));
+
+      const model3 = VFS.mountEntries(rel);
+      const lines: string[] = [
+        `已从 ZIP 解压 ${entries.length} 个文件` +
+          (root ? `（已去掉顶层目录 ${root}）` : ''),
+        `已登记文件数: ${VFS.count()}`,
+      ];
+
+      if (!model3) {
+        status.textContent =
+          `✗ ZIP 里未找到 ${MODEL3_EXT}。请确认压缩的是模型文件夹本身。`;
+        log.textContent = VFS.paths().slice(0, 30).join('\n');
+        return;
+      }
+
+      loadFromModel3(model3, lines);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      status.textContent = `✗ 解压失败: ${msg}`;
+      log.textContent = '';
     }
-    status.textContent += '\n✗ 无法访问内部 API（缺少 getLive2DManager）';
   };
 
   dirInput.addEventListener('change', () => handle(dirInput.files));
   fileInput.addEventListener('change', () => handle(fileInput.files));
+  zipInput.addEventListener('change', () => {
+    const f = zipInput.files?.[0];
+    if (f) void handleZip(f);
+    // 同じファイルを続けて選べるように value を戻す
+    zipInput.value = '';
+  });
 
   // ドラッグ＆ドロップ（フォルダも可）
   panel.addEventListener('dragover', (e) => {
@@ -496,8 +574,16 @@ export const installUI = (): void => {
       const f = item.getAsFile();
       if (f) files.push(f);
     }
-    if (files.length > 0) handle(files as unknown as FileList);
+    if (files.length === 0) return;
+
+    // ZIP が 1 つだけ落とされた場合は展開経路へ回す
+    const zips = files.filter((f) => /\.zip$/i.test(f.name));
+    if (zips.length > 0 && files.length === 1) {
+      void handleZip(zips[0]);
+      return;
+    }
+    handle(files as unknown as FileList);
   });
 
-  status.textContent = '尚未选择模型。请用上方按钮选择文件夹。';
+  status.textContent = '尚未选择模型。请用上方按钮选择文件夹、ZIP 或直接拖入。';
 };
