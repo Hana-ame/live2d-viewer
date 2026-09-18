@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live2D 模型查看器</title>
+  <style>
+    html, body {
+      overflow: hidden;
+      margin: 0;
+      background: #35353c;
+    }
+    html {
+      overscroll-behavior-x: none;
+      touch-action: none;
+    }
+    body {
+      display: flex;
+      flex-wrap: wrap;
+    }
+    body > canvas:only-child {
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+  <!-- Live2D Cubism Core（可再分发文件，见 Core/RedistributableFiles.txt） -->
+  <script src="./Core/live2dcubismcore.min.js"></script>
+  <!-- 应用入口 -->
+  <script src="./src/main.ts" type="module"></script>
+</head>
+<body>
+</body>
+</html>

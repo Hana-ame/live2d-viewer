@@ -1,0 +1,6 @@
+node_modules/
+dist/
+public/Core/
+public/Framework/
+*.log
+.DS_Store
