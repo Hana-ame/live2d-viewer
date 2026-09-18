@@ -118,7 +118,20 @@ export class CubismRenderTarget_WebGL {
     displayBufferHeight: number,
     previousFramebuffer: WebGLFramebuffer
   ): boolean {
+    // 既存リソースの解放。
+    //
+    // 注意: destroyRenderTarget() は内部で this._gl を使うが、この
+    // インスタンスは setGL() を経ずに new された直後に呼ばれることがあり
+    // （CubismRenderer_WebGL.startUp() のマスキング初期化がその例）、
+    // その場合 this._gl は null のままで
+    //   TypeError: Cannot read properties of null (reading 'bindTexture')
+    // になる。ここでは引数の gl を先に控えてから解放する。
+    const prevGl = this._gl;
+    this._gl = gl;
     this.destroyRenderTarget();
+    if (prevGl != null) {
+      this._gl = prevGl;
+    }
 
     this._colorBuffer = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this._colorBuffer);

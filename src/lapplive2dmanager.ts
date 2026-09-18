@@ -149,8 +149,9 @@ export class LAppLive2DManager {
     // ModelDir[]に保持したディレクトリ名から
     // model3.jsonのパスを決定する。
     // ディレクトリ名とmodel3.jsonの名前を一致させておくこと。
+    // ビルトインモデルは Live2D 社の公式リポジトリ（CDN）から読む。
     const model: string = LAppDefine.ModelDir[index];
-    const modelPath: string = LAppDefine.ResourcesPath + model + '/';
+    const modelPath: string = LAppDefine.BUILTIN_BASE + model + '/';
     let modelJsonName: string = LAppDefine.ModelDir[index];
     modelJsonName += '.model3.json';
 
@@ -213,8 +214,12 @@ export class LAppLive2DManager {
    */
   public initialize(subdelegate: LAppSubdelegate): void {
     this._subdelegate = subdelegate;
-    // モデルは同梱していないため、起動時には何も読み込まない。
-    // ユーザーがモデルを選択した時点で loadUploadedModel() が呼ばれる。
+    // 起動時はビルトインモデルの先頭を読み込む。
+    // ユーザーがモデルをアップロードした場合は loadUploadedModel() が
+    // これを置き換える。
+    if (LAppDefine.ModelDirSize > 0) {
+      this.changeScene(this._sceneIndex);
+    }
   }
 
   /**

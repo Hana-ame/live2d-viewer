@@ -83,7 +83,27 @@ const buildPanel = (): {
 
   const dirBtn = mkButton('选择模型文件夹');
   const fileBtn = mkButton('选择文件（多选）');
+  const nextBtn = mkButton('切换内置模型');
   const clearBtn = mkButton('清除');
+
+  // ビルトインモデル（Live2D オリジナルキャラクター）の著作権表示。
+  // Free Material License Agreement §2.1.5 により、派生作品には
+  // 指定の著作権表示を行う義務がある。
+  const credit = document.createElement('div');
+  credit.innerHTML =
+    '内置模型为 Live2D 官方样例，版权归 Live2D Inc. 所有，' +
+    '依 <a href="https://www.live2d.com/eula/live2d-sample-model-terms_en.html" ' +
+    'target="_blank" rel="noopener" style="color:#8ab4f8">其使用条款</a> 使用。<br>' +
+    '<span style="opacity:.75">This content uses sample data owned and copyrighted ' +
+    'by Live2D Inc.</span>';
+  style(credit, {
+    marginTop: '8px',
+    paddingTop: '8px',
+    borderTop: '1px solid rgba(255,255,255,0.12)',
+    fontSize: '11px',
+    lineHeight: '1.5',
+    opacity: '0.9',
+  });
 
   const status = document.createElement('div');
   style(status, { marginTop: '10px', fontSize: '12px', wordBreak: 'break-all' });
@@ -103,13 +123,24 @@ const buildPanel = (): {
 
   dirBtn.onclick = () => dirInput.click();
   fileBtn.onclick = () => fileInput.click();
+  nextBtn.onclick = () => {
+    // 内置模型之间切换（内置模型从官方 CDN 读取，不用虚拟 FS）
+    VFS.unmount();
+    const mgr = getManager();
+    if (mgr && typeof mgr.nextScene === 'function') {
+      mgr.nextScene();
+      status.textContent = '已切换到下一个内置模型。';
+    } else {
+      status.textContent = '切换失败：拿不到渲染管理器。';
+    }
+  };
   clearBtn.onclick = () => {
     VFS.unmount();
     status.textContent = '已清除。';
     log.textContent = '';
   };
 
-  panel.append(title, hint, dirBtn, fileBtn, clearBtn, status, log);
+  panel.append(title, hint, dirBtn, fileBtn, nextBtn, clearBtn, status, log, credit);
   return { panel, fileInput, dirInput, status, log };
 };
 
@@ -132,6 +163,26 @@ const diagnose = (modelJsonPath: string): string[] => {
     warnings.push(`⚠ ${dir} 下没有 .moc3`);
   }
   return warnings;
+};
+
+/** 渲染管理器の最小インタフェース（公式 API の内部経路に依存する部分を一箇所に集約） */
+type Live2DManagerLike = {
+  loadUploadedModel: (p: string) => void;
+  nextScene?: () => void;
+};
+
+/**
+ * Subdelegate 経由で描画マネージャを取得する。
+ * 公式 SDK に公開アクセサが無いため内部フィールドを辿るので、
+ * 取得経路はこの関数に集約しておく（SDK 更新時の修正点を一箇所にする）。
+ */
+const getManager = (): Live2DManagerLike | null => {
+  const delegate = LAppDelegate.getInstance() as unknown as {
+    _subdelegates?: Array<{ getLive2DManager: () => Live2DManagerLike | null }>;
+  };
+  const subs = delegate._subdelegates;
+  if (!subs || subs.length === 0) return null;
+  return subs[0].getLive2DManager();
 };
 
 export const installUI = (): void => {
@@ -157,17 +208,11 @@ export const installUI = (): void => {
     status.textContent = lines.join('\n');
 
     // 经由 Subdelegate 替换模型
-    const delegate = LAppDelegate.getInstance() as unknown as {
-      _subdelegates?: Array<{ getLive2DManager: () => { loadUploadedModel: (p: string) => void } | null }>;
-    };
-    const subs = delegate._subdelegates;
-    if (subs && subs.length > 0) {
-      const mgr = subs[0].getLive2DManager();
-      if (mgr) {
-        mgr.loadUploadedModel(model3);
-        log.textContent = VFS.paths().slice(0, 40).join('\n');
-        return;
-      }
+    const mgr = getManager();
+    if (mgr) {
+      mgr.loadUploadedModel(model3);
+      log.textContent = VFS.paths().slice(0, 40).join('\n');
+      return;
     }
     status.textContent += '\n✗ 无法访问内部 API（缺少 getLive2DManager）';
   };

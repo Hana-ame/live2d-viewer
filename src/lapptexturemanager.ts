@@ -51,6 +51,11 @@ export class LAppTextureManager {
         // WebKitでは同じImageのonloadを再度呼ぶには再インスタンスが必要
         // 詳細：https://stackoverflow.com/a/5024181
         this._textures[i].img = new Image();
+        // 別オリジンのテクスチャ（ビルトインモデルは公式 CDN から読む）を
+        // WebGL に渡すには CORS モードが必要。付けないと canvas が
+        // tainted になり texImage2D が SecurityError で失敗する。
+        // 同一オリジンや blob: では単に無視されるので害はない。
+        this._textures[i].img.crossOrigin = 'anonymous';
         this._textures[i].img.addEventListener(
           'load',
           (): void => callback(this._textures[i]),
@@ -65,6 +70,8 @@ export class LAppTextureManager {
 
     // データのオンロードをトリガーにする
     const img = new Image();
+    // 別オリジンのテクスチャを WebGL に渡すための CORS モード（上の説明を参照）
+    img.crossOrigin = 'anonymous';
     img.addEventListener(
       'load',
       (): void => {

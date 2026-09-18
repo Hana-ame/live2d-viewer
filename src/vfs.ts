@@ -90,6 +90,9 @@ export const paths = (): string[] => [...fileMap.keys()].sort();
  * 従来どおり相対パスで読まれる）。
  */
 export const resolveAssetUrl = (path: string): string => {
+  // 絶対 URL（ビルトインモデルを読む公式 CDN など）はそのまま返す。
+  // 仮想 FS の探索対象はアップロードされた相対パスに限る。
+  if (/^(blob:|data:|https?:)/i.test(path)) return path;
   const hit = resolve(path) ?? resolve(path.replace(/^\/+/, ''));
   return hit ?? path;
 };

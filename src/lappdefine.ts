@@ -52,10 +52,32 @@ export const GearImageName = 'icon_gear.png';
 export const PowerImageName = 'CloseNormal.png';
 
 // モデル定義---------------------------------------------
-// 本アプリはモデルデータを同梱しない（ユーザーがアップロードして描画する）。
-// そのため同梱モデルの一覧は空にしてあり、起動時には何も読み込まない。
-// モデルの差し替えは LAppLive2DManager.loadUploadedModel() で行う。
-export const ModelDir: string[] = [];
+// 同梱（ビルトイン）モデルの一覧。
+//
+// 重要: ここに載せているのは Live2D 社の **Live2D オリジナルキャラクター** で、
+// Free Material License Agreement の Live2D Original Character License の下で
+// 利用できる（一般ユーザーは営利・非営利を問わず使用・改変・Distribute 可）。
+//
+// ただし同契約 §4.1.1「再配布の禁止」および §1.10 の定義（Material の副本を
+// インターネット経由で第三者が取得できるサーバに置くことを含む）により、
+// **本リポジトリはモデルデータの副本を同梱・配布しない**。
+// 代わりに Live2D 社の公式リポジトリから CDN 経由で読み込む（下の BUILTIN_BASE）。
+//
+// 協力キャラクター（Collaboration Character）は一般ユーザーには非営利かつ
+// 改変・配布に制限があるため、ここには入れていない（例: Jin Natori）。
+export const BUILTIN_BASE =
+  'https://raw.githubusercontent.com/Live2D/CubismWebSamples/5-r.5/Samples/Resources/';
+
+/** 同梱モデルの一覧（Live2D オリジナルキャラクターのみ） */
+export const ModelDir: string[] = [
+  'Haru',
+  'Hiyori',
+  'Mao',
+  'Mark',
+  'Rice',
+  'Ren',
+  'Wanko'
+];
 export const ModelDirSize: number = ModelDir.length;
 
 // 外部定義ファイル（json）と合わせる
