@@ -27,17 +27,21 @@ jobs:
 
       - run: npm ci
 
+      # ビルドしてから成果物を検査する（dist は build で生成される）
+      - run: npm run build:prod
+
       # ビルド成果物にモデルデータが混入していないことを検査する。
       # 本プロジェクトはモデルを同梱しない方針のため、混入は公開時の
       # ライセンス違反になり得る。
       - name: Ensure no model data is bundled
         run: |
           set -e
-          if find dist -iname '*.moc3' -o -iname '*.model3.json' \
+          found=$(find dist \( -iname '*.moc3' -o -iname '*.model3.json' \
                -o -iname 'texture_*.png' -o -iname '*.motion3.json' \
-               -o -iname '*.exp3.json' | grep -q .; then
+               -o -iname '*.exp3.json' \) -print)
+          if [ -n "$found" ]; then
             echo "::error::ビルド成果物にモデルデータが含まれています"
-            find dist \( -iname '*.moc3' -o -iname '*.model3.json' -o -iname 'texture_*.png' \) | head
+            echo "$found" | head
             exit 1
           fi
           echo "モデルデータの混入なし"
