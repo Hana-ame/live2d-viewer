@@ -221,6 +221,62 @@ export class LAppLive2DManager {
   }
 
   /**
+   * 現在のモデルの表情をトグルする（同じ表情を再度押すと解除）。
+   * @param name 表情名
+   * @return 押下後にその表情が有効なら true
+   */
+  public toggleExpression(name: string): boolean {
+    for (const model of this._models) {
+      if (model != null) return model.toggleExpression(name);
+    }
+    return false;
+  }
+
+  /** 現在有効な表情名（無ければ null）。ボタンの押下状態表示に使う。 */
+  public getActiveExpressionName(): string | null {
+    for (const model of this._models) {
+      if (model != null) return model.getActiveExpressionName();
+    }
+    return null;
+  }
+
+  /** すべての表情を解除する（set モードの「解除」ボタン用）。 */
+  public removeAllExpressions(): void {
+    for (const model of this._models) {
+      if (model != null) {
+        model.removeAllExpressions();
+        return;
+      }
+    }
+  }
+
+  /** 表情を重ねて適用する（重ね掛けモード用）。 */
+  public addOverlayExpression(name: string): boolean {
+    for (const model of this._models) {
+      if (model != null) return model.addOverlayExpression(name);
+    }
+    return false;
+  }
+
+  /** 重ねた表情を 1 つ外す。 */
+  public removeOverlayExpression(name: string): void {
+    for (const model of this._models) {
+      if (model != null) {
+        model.removeOverlayExpression(name);
+        return;
+      }
+    }
+  }
+
+  /** 現在重ねられている表情名の一覧。 */
+  public getOverlayExpressionNames(): string[] {
+    for (const model of this._models) {
+      if (model != null) return model.getOverlayExpressionNames();
+    }
+    return [];
+  }
+
+  /**
    * コンストラクタ
    */
   public constructor() {

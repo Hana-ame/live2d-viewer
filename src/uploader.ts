@@ -151,13 +151,121 @@ const buildPanel = (): {
   const exprLabel = document.createElement('div');
   exprLabel.textContent = '表情';
   style(exprLabel, { fontSize: '12px', opacity: '0.8', marginBottom: '6px' });
+
+  // ── モード選択（2 軸）──────────────────────────────────────────
+  //   押し方 : Toggle（再押下で解除） / Set（押すたび適用）
+  //   重ね方 : 単独（常に 1 つ）      / 重ね（複数を同時に有効化）
+  // どちらも実行時の振る舞いを変えるだけなので、UI は小さな選択肢で足りる。
+  const modeRow = document.createElement('div');
+  style(modeRow, {
+    display: 'flex',
+    gap: '10px',
+    flexWrap: 'wrap',
+    marginBottom: '6px',
+    fontSize: '11px',
+  });
+
+  const mkRadioGroup = (
+    label: string,
+    options: Array<{ value: string; text: string }>,
+    initial: string,
+    onChange: (v: string) => void
+  ): HTMLDivElement => {
+    const wrap = document.createElement('div');
+    style(wrap, { display: 'flex', alignItems: 'center', gap: '4px' });
+    const cap = document.createElement('span');
+    cap.textContent = label + '：';
+    style(cap, { opacity: '0.7' });
+    wrap.appendChild(cap);
+
+    for (const opt of options) {
+      const id = `expr-${label}-${opt.value}`;
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = `expr-${label}`;
+      radio.id = id;
+      radio.value = opt.value;
+      radio.checked = opt.value === initial;
+      radio.onchange = () => onChange(opt.value);
+      style(radio, { margin: '0 0 0 4px', cursor: 'pointer' });
+
+      const lb = document.createElement('label');
+      lb.htmlFor = id;
+      lb.textContent = opt.text;
+      style(lb, { cursor: 'pointer', opacity: '0.9' });
+
+      wrap.append(radio, lb);
+    }
+    return wrap;
+  };
+
+  let overlayMode = false;
+  let toggleMode = true;
+
+  // ボタンの押下状態を更新する関数。
+  // modeRow / clearExprBtn のハンドラから参照されるため、先に宣言だけしておき
+  // 実体は表情ボタンを組み立てる際に代入する。
+  let syncActive: () => void = () => {};
+
+  modeRow.append(
+    mkRadioGroup(
+      '模式',
+      [
+        { value: 'toggle', text: '开关' },
+        { value: 'set', text: '直接设置' },
+      ],
+      'toggle',
+      (v) => {
+        toggleMode = v === 'toggle';
+        syncActive();
+      }
+    ),
+    mkRadioGroup(
+      '叠加',
+      [
+        { value: 'single', text: '不叠加' },
+        { value: 'overlay', text: '可叠加' },
+      ],
+      'single',
+      (v) => {
+        overlayMode = v === 'overlay';
+        // 叠加を切ったら、重ねていた表情を畳んで 1 つに戻す
+        if (!overlayMode) {
+          const mgr = getManager();
+          const act = mgr?.getActiveExpressionName?.() ?? null;
+          mgr?.removeAllExpressions?.();
+          if (act != null) mgr?.setExpression?.(act);
+        }
+        syncActive();
+      }
+    )
+  );
+
   const exprList = document.createElement('div');
   style(exprList, {
     display: 'flex',
     flexWrap: 'wrap',
     gap: '6px',
   });
-  exprWrap.append(exprLabel, exprList);
+
+  // set モード用の「解除」ボタン（toggle モードでは不要なので隠す）
+  const clearExprBtn = document.createElement('button');
+  clearExprBtn.textContent = '解除';
+  style(clearExprBtn, {
+    padding: '4px 8px',
+    borderRadius: '5px',
+    border: '1px solid rgba(255,255,255,0.18)',
+    background: 'rgba(255,120,120,0.14)',
+    color: 'inherit',
+    font: '11px/1.4 inherit',
+    cursor: 'pointer',
+  });
+  clearExprBtn.onclick = () => {
+    getManager()?.removeAllExpressions?.();
+    syncActive();
+  };
+
+  exprWrap.append(exprLabel, modeRow, exprList, clearExprBtn);
 
   /**
    * 現在のモデルの表情ボタンを組み立て直す。
@@ -188,6 +296,7 @@ const buildPanel = (): {
       const btns: HTMLButtonElement[] = names.map((name) => {
         const b = document.createElement('button');
         b.textContent = name;
+        b.dataset.exprName = name;
         style(b, {
           padding: '4px 8px',
           borderRadius: '5px',
@@ -197,10 +306,57 @@ const buildPanel = (): {
           font: '11px/1.4 inherit',
           cursor: 'pointer',
         });
-        b.onclick = () => getManager()?.setExpression?.(name);
+
+        // 押下時の振る舞いは modeRow の 2 軸で決まる:
+        //   overlay=true  → 重ね掛け（同一表情の再押下で外す）
+        //   overlay=false → 単独（従来どおり 1 つだけ）
+        //   toggle=true   → 再押下で解除 / toggle=false → 常に適用
+        b.onclick = () => {
+          const mgr = getManager();
+          if (mgr == null) return;
+
+          if (overlayMode) {
+            const active = mgr.getOverlayExpressionNames?.() ?? [];
+            if (active.includes(name)) {
+              mgr.removeOverlayExpression?.(name);
+            } else {
+              mgr.addOverlayExpression?.(name);
+            }
+          } else {
+            const isActive = mgr.getActiveExpressionName?.() === name;
+            if (toggleMode && isActive) {
+              mgr.removeAllExpressions?.();
+            } else {
+              mgr.removeAllExpressions?.();
+              mgr.setExpression?.(name);
+            }
+          }
+          syncActive();
+        };
         return b;
       });
+
+      // 有効な表情のボタンだけ押下状態に見せる。
+      // 単独モードは「現在の表情」、重ねモードは「重ねている表情の集合」を見る。
+      syncActive = (): void => {
+        const mgr = getManager();
+        const single = mgr?.getActiveExpressionName?.() ?? null;
+        const overlays = mgr?.getOverlayExpressionNames?.() ?? [];
+        for (const b of btns) {
+          const n = b.dataset.exprName ?? '';
+          const on = overlayMode ? overlays.includes(n) : n === single;
+          style(b, {
+            background: on ? 'rgba(120,180,255,0.32)' : 'rgba(255,255,255,0.08)',
+            borderColor: on ? 'rgba(120,180,255,0.9)' : 'rgba(255,255,255,0.18)',
+          });
+        }
+        // 解除ボタンは「何か有効なとき」だけ目立たせる
+        const anyOn = overlayMode ? overlays.length > 0 : single != null;
+        style(clearExprBtn, { opacity: anyOn ? '1' : '0.45' });
+      };
+
       exprList.replaceChildren(...btns);
+      syncActive();
     };
     tick();
   };
@@ -247,6 +403,8 @@ type Live2DManagerLike = {
   nextScene?: () => void;
   getExpressionNames?: () => string[];
   setExpression?: (name: string) => void;
+  toggleExpression?: (name: string) => boolean;
+  getActiveExpressionName?: () => string | null;
 };
 
 /**

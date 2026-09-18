@@ -33,6 +33,7 @@ import { CubismBreathUpdater } from '@framework/motion/cubismbreathupdater';
 import { CubismLookUpdater } from '@framework/motion/cubismlookupdater';
 import { CubismEyeBlinkUpdater } from '@framework/motion/cubismeyeblinkupdater';
 import { CubismExpressionUpdater } from '@framework/motion/cubismexpressionupdater';
+import { CubismExpressionMotionManager } from '@framework/motion/cubismexpressionmotionmanager';
 import { CubismPhysicsUpdater } from '@framework/motion/cubismphysicsupdater';
 import { CubismPoseUpdater } from '@framework/motion/cubismposeupdater';
 import { CubismLipSyncUpdater } from '@framework/motion/cubismlipsyncupdater';
@@ -763,11 +764,91 @@ export class LAppModel extends CubismUserModel {
 
     if (motion != null) {
       this._expressionManager.startMotion(motion, false);
+      this._activeExpressionName = expressionId;
     } else {
       if (this._debugMode) {
         LAppPal.printMessage(`[APP]expression[${expressionId}] is null`);
       }
     }
+  }
+
+  /**
+   * 表情をトグルする（VTube Studio の ToggleExpression と同じ意味論）。
+   *
+   * 同じ表情をもう一度押したら解除する。解除は表情キューを空にすることで行い、
+   * パラメータは毎フレームの loadParameters() で基準値に戻るため、
+   * 明示的に値を書き戻す必要はない。
+   *
+   * @param expressionId 表情モーションのID
+   * @return 呼び出し後にその表情が有効なら true、解除されたなら false
+   */
+  public toggleExpression(expressionId: string): boolean {
+    if (this._activeExpressionName === expressionId) {
+      this._expressionManager.stopAllMotions();
+      this._activeExpressionName = null;
+      return false;
+    }
+    this.setExpression(expressionId);
+    return this._activeExpressionName === expressionId;
+  }
+
+  /** 現在有効な表情名（無ければ null）。UI の押下状態表示に使う。 */
+  public getActiveExpressionName(): string | null {
+    return this._activeExpressionName;
+  }
+
+  /** すべての表情を解除する（VTube Studio の RemoveAllExpressions 相当）。 */
+  public removeAllExpressions(): void {
+    this._expressionManager.stopAllMotions();
+    this._activeExpressionName = null;
+    this.releaseOverlayExpressions();
+  }
+
+  /**
+   * 表情を「重ねて」適用する。
+   *
+   * SDK の単一 CubismExpressionMotionManager は新しい表情のフェード完了時に
+   * 以前の表情を削除してしまうため、重ねるには**表情ごとに専用の
+   * マネージャとアップデータを用意する**必要がある。ここでは表情名ごとに
+   * 独立した管理器を作り、それぞれをスケジューラに登録する。
+   *
+   * @param expressionId 表情モーションのID
+   * @return 重ねられたら true（未知の表情名なら false）
+   */
+  public addOverlayExpression(expressionId: string): boolean {
+    const motion: ACubismMotion = this._expressions.get(expressionId);
+    if (motion == null) return false;
+
+    // 同じ表情を二重に重ねない
+    if (this._overlayExpressions.has(expressionId)) return true;
+
+    const manager = new CubismExpressionMotionManager();
+    const updater = new CubismExpressionUpdater(manager);
+    manager.startMotion(motion, false);
+    this._updateScheduler.addUpdatableList(updater);
+    this._overlayExpressions.set(expressionId, { manager, updater });
+    return true;
+  }
+
+  /** 重ねた表情を 1 つ外す。 */
+  public removeOverlayExpression(expressionId: string): void {
+    const entry = this._overlayExpressions.get(expressionId);
+    if (entry == null) return;
+    this._updateScheduler.removeUpdatableList(entry.updater);
+    entry.manager.release();
+    this._overlayExpressions.delete(expressionId);
+  }
+
+  /** 重ねた表情をすべて外す。 */
+  public releaseOverlayExpressions(): void {
+    for (const name of [...this._overlayExpressions.keys()]) {
+      this.removeOverlayExpression(name);
+    }
+  }
+
+  /** 現在重ねられている表情名の一覧。 */
+  public getOverlayExpressionNames(): string[] {
+    return [...this._overlayExpressions.keys()];
   }
 
   /**
@@ -1055,11 +1136,18 @@ export class LAppModel extends CubismUserModel {
     this._look = null;
     this._updateScheduler = new CubismUpdateScheduler();
     this._motionUpdated = false;
+    this._activeExpressionName = null;
+    this._overlayExpressions = new Map();
   }
 
   private _updateScheduler: CubismUpdateScheduler; // アップデートスケジューラー
   private _motionUpdated: boolean; // モーション更新フラグ
   private _subdelegate: LAppSubdelegate; // サブデリゲート
+  private _activeExpressionName: string | null; // 現在有効な表情名（トグル判定用）
+  private _overlayExpressions: Map<
+    string,
+    { manager: CubismExpressionMotionManager; updater: CubismExpressionUpdater }
+  >; // 重ねて適用中の表情（表情ごとに専用マネージャを持つ）
 
   _modelSetting: ICubismModelSetting; // モデルセッティング情報
   _modelHomeDir: string; // モデルセッティングが置かれたディレクトリ
