@@ -771,6 +771,16 @@ export class LAppModel extends CubismUserModel {
   }
 
   /**
+   * このモデルが持つ表情の名前一覧を返す。
+   *
+   * UI の表情ボタンを組み立てるために使う。読み込み済みの表情
+   * （model3.json の Expressions に列挙され、読み込みに成功したもの）だけを返す。
+   */
+  public getExpressionNames(): string[] {
+    return [...this._expressions.keys()];
+  }
+
+  /**
    * ランダムに選ばれた表情モーションをセットする
    */
   public setRandomExpression(): void {

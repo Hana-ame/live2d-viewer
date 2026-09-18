@@ -130,6 +130,7 @@ const buildPanel = (): {
     if (mgr && typeof mgr.nextScene === 'function') {
       mgr.nextScene();
       status.textContent = '已切换到下一个内置模型。';
+      refreshExpressions();
     } else {
       status.textContent = '切换失败：拿不到渲染管理器。';
     }
@@ -140,8 +141,83 @@ const buildPanel = (): {
     log.textContent = '';
   };
 
-  panel.append(title, hint, dirBtn, fileBtn, nextBtn, clearBtn, status, log, credit);
-  return { panel, fileInput, dirInput, status, log };
+  // 表情按钮区。モデル読み込み後に動的に組み立てる。
+  const exprWrap = document.createElement('div');
+  style(exprWrap, {
+    marginTop: '10px',
+    paddingTop: '8px',
+    borderTop: '1px solid rgba(255,255,255,0.12)',
+  });
+  const exprLabel = document.createElement('div');
+  exprLabel.textContent = '表情';
+  style(exprLabel, { fontSize: '12px', opacity: '0.8', marginBottom: '6px' });
+  const exprList = document.createElement('div');
+  style(exprList, {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '6px',
+  });
+  exprWrap.append(exprLabel, exprList);
+
+  /**
+   * 現在のモデルの表情ボタンを組み立て直す。
+   *
+   * モデルの読み込みは非同期なので、一定時間ポーリングして
+   * 表情が現れた時点で一度だけ描画する。
+   */
+  const refreshExpressions = (): void => {
+    let tries = 0;
+    const tick = (): void => {
+      const mgr = getManager();
+      const names = mgr?.getExpressionNames?.() ?? [];
+
+      if (names.length === 0) {
+        // 表情が無いモデルもあるため、上限まで見て諦める
+        if (++tries < 20) {
+          window.setTimeout(tick, 500);
+        } else {
+          exprList.replaceChildren();
+          const none = document.createElement('span');
+          none.textContent = '（此模型没有表情）';
+          style(none, { fontSize: '11px', opacity: '0.6' });
+          exprList.appendChild(none);
+        }
+        return;
+      }
+
+      const btns: HTMLButtonElement[] = names.map((name) => {
+        const b = document.createElement('button');
+        b.textContent = name;
+        style(b, {
+          padding: '4px 8px',
+          borderRadius: '5px',
+          border: '1px solid rgba(255,255,255,0.18)',
+          background: 'rgba(255,255,255,0.08)',
+          color: 'inherit',
+          font: '11px/1.4 inherit',
+          cursor: 'pointer',
+        });
+        b.onclick = () => getManager()?.setExpression?.(name);
+        return b;
+      });
+      exprList.replaceChildren(...btns);
+    };
+    tick();
+  };
+
+  panel.append(
+    title,
+    hint,
+    dirBtn,
+    fileBtn,
+    nextBtn,
+    clearBtn,
+    status,
+    exprWrap,
+    log,
+    credit
+  );
+  return { panel, fileInput, dirInput, status, log, refreshExpressions };
 };
 
 /** 校验模型 JSON 同目录下是否有 .moc3，缺失时返回原因 */
@@ -169,6 +245,8 @@ const diagnose = (modelJsonPath: string): string[] => {
 type Live2DManagerLike = {
   loadUploadedModel: (p: string) => void;
   nextScene?: () => void;
+  getExpressionNames?: () => string[];
+  setExpression?: (name: string) => void;
 };
 
 /**
@@ -186,8 +264,12 @@ const getManager = (): Live2DManagerLike | null => {
 };
 
 export const installUI = (): void => {
-  const { panel, fileInput, dirInput, status, log } = buildPanel();
+  const { panel, fileInput, dirInput, status, log, refreshExpressions } =
+    buildPanel();
   document.body.appendChild(panel);
+
+  // 起動時のビルトインモデルぶんの表情ボタンを用意する
+  refreshExpressions();
 
   const handle = (files: FileList | null): void => {
     if (!files || files.length === 0) return;
@@ -212,6 +294,8 @@ export const installUI = (): void => {
     if (mgr) {
       mgr.loadUploadedModel(model3);
       log.textContent = VFS.paths().slice(0, 40).join('\n');
+      // モデルが変わったので表情ボタンを組み直す（読み込み完了を待って拾う）
+      refreshExpressions();
       return;
     }
     status.textContent += '\n✗ 无法访问内部 API（缺少 getLive2DManager）';

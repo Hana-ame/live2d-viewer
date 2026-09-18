@@ -194,6 +194,33 @@ export class LAppLive2DManager {
   }
 
   /**
+   * 現在のモデルが持つ表情名の一覧を返す。
+   *
+   * モデルの読み込みは非同期なので、呼ぶ側は空配列を
+   * 「まだ読み込み中 or 表情なし」として扱うこと。
+   */
+  public getExpressionNames(): string[] {
+    for (const model of this._models) {
+      const names = model?.getExpressionNames?.();
+      if (names && names.length > 0) return names;
+    }
+    return [];
+  }
+
+  /**
+   * 現在のモデルに表情を適用する。
+   * @param name 表情名（getExpressionNames() が返した値）
+   */
+  public setExpression(name: string): void {
+    for (const model of this._models) {
+      if (model != null) {
+        model.setExpression(name);
+        return;
+      }
+    }
+  }
+
+  /**
    * コンストラクタ
    */
   public constructor() {
