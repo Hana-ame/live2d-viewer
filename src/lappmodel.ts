@@ -572,6 +572,7 @@ export class LAppModel extends CubismUserModel {
         this.setupTextures();
         this.getRenderer().startUp(this._subdelegate.getGlManager().getGl());
         this.getRenderer().loadShaders(LAppDefine.ShaderPath);
+        this.applyClippingMaskBufferSize();
       }
     };
   }
@@ -682,6 +683,37 @@ export class LAppModel extends CubismUserModel {
       }
 
       this._state = LoadStep.WaitLoadTexture;
+    }
+  }
+
+
+  /**
+   * クリッピングマスクのバッファサイズをモデルの要求に合わせて広げる。
+   *
+   * Framework の既定値は 256（cubismclippingmanager.ts の
+   * _clippingMaskBufferSize）で、公式サンプルのモデル程度なら足りる。
+   * しかし多数のマスクを持つ皮套では 256x256 に全マスクを詰め込むことになり、
+   * マスクの境界が解像度不足で潰れて**本来隠れるべきパーツが表示される**
+   * （実例: 阿库露(礼服)_vts は 49 個のマスク源・431 中 67 がマスク使用で、
+   *  Param2=0 のとき旧後发が頭頂に楕円として出ていた）。
+   *
+   * VTube Studio は同じ問題を「マスクテクスチャを 8192x8192 にして
+   * 256 マスクまで許容」で解決している（Player.log の
+   * [Live2DMaskTexture] 行）。ここでもマスク数に応じて 1 マスクあたり
+   * 1024px を確保する。startUp() の後（クリッピングマネージャ生成後）に
+   * 呼ぶこと。
+   */
+  private applyClippingMaskBufferSize(): void {
+    const renderer = this.getRenderer();
+    if (renderer == null) return;
+
+    const count = renderer.getRenderTextureCount();
+    if (count <= 0) return;
+
+    // 1 マスクあたり 1024px、上限 8192（VTS と同じ上限）
+    const wanted = Math.min(8192, Math.max(256, count * 1024));
+    if (wanted > 256) {
+      renderer.setClippingMaskBufferSize(wanted);
     }
   }
 
@@ -1092,6 +1124,7 @@ export class LAppModel extends CubismUserModel {
               this._subdelegate.getGlManager().getGl()
             );
             this.getRenderer().loadShaders(LAppDefine.ShaderPath);
+            this.applyClippingMaskBufferSize();
           }
         });
     }
