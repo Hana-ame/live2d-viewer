@@ -106,6 +106,25 @@ export class LAppModel extends CubismUserModel {
     fetch(`${this._modelHomeDir}${fileName}`)
       .then(response => response.arrayBuffer())
       .then(arrayBuffer => {
+        // model3.json の init_param を読み取る。Live2D SDK はこのフィールドを
+        // 定数として定義しているが解析ロジックが未実装なので、ここで自前で拾う。
+        // VTuber 配布の皮套では、衣装切り替えや髪型トグルの初期値を指定するのに使う。
+        try {
+          const jsonText = new TextDecoder().decode(arrayBuffer);
+          const jsonObj = JSON.parse(jsonText);
+          const initParam = jsonObj['init_param'];
+          if (Array.isArray(initParam)) {
+            this._initParams = initParam
+              .filter((p: Record<string, unknown>) => p && typeof p['Id'] === 'string')
+              .map((p: Record<string, unknown>) => ({
+                id: p['Id'] as string,
+                value: (typeof p['val'] === 'number' ? p['val'] : typeof p['Value'] === 'number' ? p['Value'] : 0) as number,
+              }));
+          }
+        } catch (_) {
+          // JSON 解析に失敗しても CubismModelSettingJson 側で処理されるのでここでは無視
+        }
+
         const raw: ICubismModelSetting = new CubismModelSettingJson(
           arrayBuffer,
           arrayBuffer.byteLength
@@ -159,6 +178,12 @@ export class LAppModel extends CubismUserModel {
         })
         .then(arrayBuffer => {
           this.loadModel(arrayBuffer, this._mocConsistency);
+
+          // model3.json の init_param に指定された初期パラメータ値を適用する。
+          // loadModel() 内で saveParameters() が呼ばれた後なので、ここで上書き
+          // してから再度 saveParameters() することで基準値を変更できる。
+          this.applyInitParams();
+
           this._state = LoadStep.LoadExpression;
 
           // callback
@@ -1170,6 +1195,30 @@ export class LAppModel extends CubismUserModel {
     }
   }
 
+  /**
+   * model3.json の init_param で指定された初期パラメータ値をモデルに適用する。
+   *
+   * loadModel() が呼ばれた直後（saveParameters() 済み）に呼ぶことで、
+   * moc3 のデフォルトを上書きしたうえで改めて saveParameters() する。
+   * これにより毎フレームの loadParameters() で復元される基準値が
+   * init_param の値になる。
+   *
+   * VTuber 配布モデルの衣装切り替え・髪型トグルなどの初期状態を
+   * model3.json だけで制御できるようにするための機能。
+   */
+  private applyInitParams(): void {
+    if (!this._initParams || this._initParams.length === 0) return;
+    for (const { id, value } of this._initParams) {
+      const paramId = CubismFramework.getIdManager().getId(id);
+      this._model.setParameterValueById(paramId, value);
+    }
+    this._model.saveParameters();
+    CubismLogInfo(
+      '[APP]init_param applied: %d parameter(s) overridden',
+      this._initParams.length
+    );
+  }
+
   public setSubdelegate(subdelegate: LAppSubdelegate): void {
     this._subdelegate = subdelegate;
   }
@@ -1241,6 +1290,7 @@ export class LAppModel extends CubismUserModel {
     this._activeExpressionName = null;
     this._extraExpressionFiles = [];
     this._overlayExpressions = new Map();
+    this._initParams = [];
   }
 
   private _updateScheduler: CubismUpdateScheduler; // アップデートスケジューラー
@@ -1252,6 +1302,7 @@ export class LAppModel extends CubismUserModel {
     string,
     { manager: CubismExpressionMotionManager; updater: CubismExpressionUpdater }
   >; // 重ねて適用中の表情（表情ごとに専用マネージャを持つ）
+  private _initParams: Array<{ id: string; value: number }>; // model3.json の init_param から読み取った初期パラメータ
 
   _modelSetting: ICubismModelSetting; // モデルセッティング情報
   _modelHomeDir: string; // モデルセッティングが置かれたディレクトリ
