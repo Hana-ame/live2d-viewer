@@ -97,7 +97,8 @@ export class LAppModel extends CubismUserModel {
   public loadAssets(
     dir: string,
     fileName: string,
-    extraExpressionFiles: string[] = []
+    extraExpressionFiles: string[] = [],
+    extraMotionFiles: string[] = []
   ): void {
     this._modelHomeDir = dir;
     this._extraExpressionFiles = extraExpressionFiles;
@@ -105,9 +106,16 @@ export class LAppModel extends CubismUserModel {
     fetch(`${this._modelHomeDir}${fileName}`)
       .then(response => response.arrayBuffer())
       .then(arrayBuffer => {
-        const setting: ICubismModelSetting = new CubismModelSettingJson(
+        const raw: ICubismModelSetting = new CubismModelSettingJson(
           arrayBuffer,
           arrayBuffer.byteLength
+        );
+
+        // model3.json に Motions が無い皮套は、走査で拾った一覧を
+        // 仮想グループとして見せる（VTube Studio と同じ拾い方）。
+        const setting: ICubismModelSetting = this.withScannedMotions(
+          raw,
+          extraMotionFiles
         );
 
         // ステートを更新
@@ -566,6 +574,60 @@ export class LAppModel extends CubismUserModel {
         this.getRenderer().loadShaders(LAppDefine.ShaderPath);
       }
     };
+  }
+
+  /**
+   * model3.json に Motions が無い皮套用に、走査で拾った *.motion3.json を
+   * 「仮想のモーショングループ」として見せる薄いアダプタを返す。
+   *
+   * VTuber 配布の皮套は Expressions だけでなく Motions も書かずにファイルを
+   * 置くだけのことがあり、VTube Studio はディレクトリを走査して拾う。
+   * 既存の読み込み経路（preLoadMotionGroup）をそのまま使いたいので、
+   * 設定オブジェクト側を包んで group が見えるようにする。
+   *
+   * モーションに関わる 4 メソッドだけ差し替え、他は prototype 経由で
+   * 元の設定に委譲する。
+   */
+  private withScannedMotions(
+    base: ICubismModelSetting,
+    files: string[]
+  ): ICubismModelSetting {
+    if (files.length === 0) return base;
+
+    // グループ名はファイル名から拡張子を除いたもの（例: IDLE.motion3.json → IDLE）。
+    // ただし idle だけは大文字小文字を正規化する: 待機モーションの再生は
+    // LAppDefine.MotionGroupIdle（'Idle'）で引かれるため、'IDLE' のままだと
+    // グループは読めても再生されない。
+    const canonical = (g: string): string =>
+      g.toLowerCase() === LAppDefine.MotionGroupIdle.toLowerCase()
+        ? LAppDefine.MotionGroupIdle
+        : g;
+
+    const extra = new Map<string, string[]>();
+    for (const f of files) {
+      const g = canonical(
+        f
+          .split('/')
+          .pop()!
+          .replace(/\.motion3\.json$/i, '')
+      );
+      if (!extra.has(g)) extra.set(g, []);
+      extra.get(g)!.push(f);
+    }
+
+    const extraGroups = [...extra.keys()];
+    const baseCount = base.getMotionGroupCount();
+
+    const proxy: ICubismModelSetting = Object.create(base);
+    proxy.getMotionGroupCount = (): number => baseCount + extraGroups.length;
+    proxy.getMotionGroupName = (i: number): string =>
+      i < baseCount ? base.getMotionGroupName(i) : extraGroups[i - baseCount];
+    proxy.getMotionCount = (g: string): number =>
+      extra.has(g) ? extra.get(g)!.length : base.getMotionCount(g);
+    proxy.getMotionFileName = (g: string, i: number): string =>
+      extra.has(g) ? extra.get(g)![i] : base.getMotionFileName(g, i);
+
+    return proxy;
   }
 
   /**

@@ -412,7 +412,11 @@ const diagnose = (modelJsonPath: string): string[] => {
 
 /** 渲染管理器の最小インタフェース（公式 API の内部経路に依存する部分を一箇所に集約） */
 type Live2DManagerLike = {
-  loadUploadedModel: (p: string, extraExpressions?: string[]) => void;
+  loadUploadedModel: (
+    p: string,
+    extraExpressions?: string[],
+    extraMotions?: string[]
+  ) => void;
   nextScene?: () => void;
   getExpressionNames?: () => string[];
   setExpression?: (name: string) => void;
@@ -470,10 +474,17 @@ export const installUI = (): void => {
     const extraExpressions = VFS.listFiles(dir, '.exp3.json');
     if (extraExpressions.length > 0) {
       lines.push(`（扫描到 ${extraExpressions.length} 个未声明的表情文件）`);
+    }
+    // 動作も同様に走査して拾う（model3.json に Motions が無い皮套がある）
+    const extraMotions = VFS.listFiles(dir, '.motion3.json');
+    if (extraMotions.length > 0) {
+      lines.push(`（扫描到 ${extraMotions.length} 个未声明的动作文件）`);
+    }
+    if (extraExpressions.length > 0 || extraMotions.length > 0) {
       status.textContent = lines.join('\n');
     }
 
-    mgr.loadUploadedModel(model3, extraExpressions);
+    mgr.loadUploadedModel(model3, extraExpressions, extraMotions);
     log.textContent = VFS.paths().slice(0, 40).join('\n');
     // モデルが変わったので表情ボタンを組み直す（読み込み完了を待って拾う）
     refreshExpressions();

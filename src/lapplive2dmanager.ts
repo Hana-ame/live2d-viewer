@@ -185,7 +185,8 @@ export class LAppLive2DManager {
    */
   public loadUploadedModel(
     modelJsonPath: string,
-    extraExpressionFiles: string[] = []
+    extraExpressionFiles: string[] = [],
+    extraMotionFiles: string[] = []
   ): void {
     const dir = modelJsonPath.includes('/')
       ? modelJsonPath.slice(0, modelJsonPath.lastIndexOf('/') + 1)
@@ -195,7 +196,7 @@ export class LAppLive2DManager {
     this.releaseAllModel();
     const instance = new LAppModel();
     instance.setSubdelegate(this._subdelegate);
-    instance.loadAssets(dir, fileName, extraExpressionFiles);
+    instance.loadAssets(dir, fileName, extraExpressionFiles, extraMotionFiles);
     this._models.push(instance);
   }
 
