@@ -590,13 +590,7 @@ export class LAppModel extends CubismUserModel {
         this._updating = false;
         this._initialized = true;
 
-        this.createRenderer(
-          this._subdelegate.getCanvas().width,
-          this._subdelegate.getCanvas().height
-        );
-        this.setupTextures();
-        this.getRenderer().startUp(this._subdelegate.getGlManager().getGl());
-        this.getRenderer().loadShaders(LAppDefine.ShaderPath);
+        this.initRenderer();
       }
     };
   }
@@ -711,15 +705,62 @@ export class LAppModel extends CubismUserModel {
   }
 
   /**
+   * レンダラを生成・初期化する。
+   * モデルのクリッピングマスク数に応じて必要なレンダーテクスチャ枚数（maskBufferCount）
+   * とマスクバッファ解像度（clippingMaskBufferSize）を設定する。
+   */
+  private initRenderer(): void {
+    const maskBufferCount = this.getRequiredMaskBufferCount();
+    this.createRenderer(
+      this._subdelegate.getCanvas().width,
+      this._subdelegate.getCanvas().height,
+      maskBufferCount
+    );
+
+    // マスク数が多い皮套（40+）では、256x256 では解像度が不足して境界が潰れ、
+    // 本来クリップされるべきパーツが露出する（頭頂の旧後髪・楕円アーティファクトなど）。
+    // マスクバッファ解像度を 2048 に拡大して鮮明なクリッピングを確保する。
+    const renderer = this.getRenderer();
+    if (renderer && this.getModel()?.isUsingMasking()) {
+      renderer.setClippingMaskBufferSize(2048);
+    }
+
+    this.setupTextures();
+    this.getRenderer().startUp(this._subdelegate.getGlManager().getGl());
+    this.getRenderer().loadShaders(LAppDefine.ShaderPath);
+  }
+
+  /**
+   * モデルのクリッピングマスク数に応じて必要なレンダーテクスチャ枚数を求める。
+   * Framework の既定は 1 枚で、1 枚のときは最大 36 個までしかマスクを保持できない
+   * （ClippingMaskMaxCountOnDefault = 36）。
+   * 36 個を超えるモデル（阿库露(礼服)_vts 等、41 個のマスク源を持つ）では
+   * マスクが破綻して本来隠れるべきパーツ（頭頂の楕円・旧後髪など）が漏れ出る。
+   * 2 枚以上なら 1 枚あたり 32 個まで収容可能（ClippingMaskMaxCountOnMultiRenderTexture = 32）。
+   */
+  private getRequiredMaskBufferCount(): number {
+    const model = this.getModel();
+    if (model == null) return 1;
+    const drawableCount = model.getDrawableCount();
+    const maskCounts = model.getDrawableMaskCounts();
+    const masks = model.getDrawableMasks();
+    const unique = new Set<string>();
+    for (let i = 0; i < drawableCount; i++) {
+      if (maskCounts[i] <= 0) continue;
+      const maskList = Array.from(masks[i]).slice(0, maskCounts[i]).sort().join(',');
+      unique.add(maskList);
+    }
+    const maskGroupCount = unique.size;
+    if (maskGroupCount <= 36) return 1;
+    return Math.max(1, Math.ceil(maskGroupCount / 32));
+  }
+
+  /**
    * レンダラを再構築する
    */
   public reloadRenderer(): void {
     this.deleteRenderer();
-    this.createRenderer(
-      this._subdelegate.getCanvas().width,
-      this._subdelegate.getCanvas().height
-    );
-    this.setupTextures();
+    this.initRenderer();
   }
 
   /**
@@ -1108,15 +1149,7 @@ export class LAppModel extends CubismUserModel {
             this._updating = false;
             this._initialized = true;
 
-            this.createRenderer(
-              this._subdelegate.getCanvas().width,
-              this._subdelegate.getCanvas().height
-            );
-            this.setupTextures();
-            this.getRenderer().startUp(
-              this._subdelegate.getGlManager().getGl()
-            );
-            this.getRenderer().loadShaders(LAppDefine.ShaderPath);
+            this.initRenderer();
           }
         });
     }

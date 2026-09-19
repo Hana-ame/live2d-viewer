@@ -622,6 +622,10 @@ export class CubismRenderer_WebGL extends CubismRenderer {
 
     this._drawableClippingManager.setClippingMaskBufferSize(size);
 
+    if (this.gl) {
+      this._drawableClippingManager.setGL(this.gl);
+    }
+
     this._drawableClippingManager.initializeForDrawable(
       this.getModel(),
       renderTextureCount // インスタンス破棄前に保存したレンダーテクスチャの数
